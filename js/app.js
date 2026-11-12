@@ -1,4 +1,23 @@
 (function () {
+  const statsEl = document.getElementById('statsText');
+
+  function showErrorBanner(msg) {
+    if (statsEl) {
+      statsEl.innerHTML = `<span style="color:#dc2626;font-weight:700;">エラー: ${msg}</span>`;
+    }
+    console.error(msg);
+  }
+
+  // Check required libraries
+  if (typeof maplibregl === 'undefined') {
+    showErrorBanner('地図ライブラリ(MapLibre)が読み込めませんでした。初回はインターネット接続が必要です。');
+    return;
+  }
+  if (typeof Dexie === 'undefined') {
+    showErrorBanner('DBライブラリ(Dexie)が読み込めませんでした。初回はインターネット接続が必要です。');
+    return;
+  }
+
   const SCHEMA = window.SURVEY_SCHEMA;
   const LEGENDS = SCHEMA.legends;
   let map = null;
@@ -8,14 +27,15 @@
   let watchId = null;
   let pmtilesObjectUrl = null;
 
-  // Register Service Worker
-  if ('serviceWorker' in navigator) {
+  // Register Service Worker (only on http/https)
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('./sw.js').catch(console.warn);
   }
 
   // Online / Offline indicator
   function updateNetworkStatus() {
     const el = document.getElementById('netStatus');
+    if (!el) return;
     if (navigator.onLine) {
       el.textContent = 'オンライン';
       el.className = 'badge-status badge-online';
@@ -28,7 +48,7 @@
   window.addEventListener('offline', updateNetworkStatus);
   updateNetworkStatus();
 
-  // Image auto-resize (max 1600px, JPEG 0.8) to prevent iOS memory/storage crash
+  // Image auto-resize (max 1600px, JPEG 0.8)
   function resizeImageFile(file, maxDim = 1600, quality = 0.8) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -61,7 +81,7 @@
     });
   }
 
-  // Build MapLibre style (GSI Pale/Std Raster or Offline PMTiles)
+  // Build MapLibre style
   function createMapStyle(pmtilesUrl) {
     if (pmtilesUrl) {
       return {
@@ -122,23 +142,46 @@
 
   // Initialize Map
   async function initMap() {
-    const protocol = new pmtiles.Protocol();
-    maplibregl.addProtocol('pmtiles', protocol.tile);
+    try {
+      if (typeof pmtiles !== 'undefined') {
+        const protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol('pmtiles', protocol.tile);
+      }
 
-    map = new maplibregl.Map({
-      container: 'map',
-      style: createMapStyle(null),
-      center: [140.3597, 37.4005], // 郡山市役所付近
-      zoom: 16,
-      maxZoom: 20
-    });
+      map = new maplibregl.Map({
+        container: 'map',
+        style: createMapStyle(null),
+        center: [140.3597, 37.4005],
+        zoom: 16,
+        maxZoom: 20
+      });
 
-    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+      map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
-    map.on('load', async () => {
-      addHouseLayers();
-      await loadAndRenderHouses();
-    });
+      map.on('error', (e) => {
+        console.warn('MapLibre warning/error:', e && e.error ? e.error.message : e);
+      });
+
+      const onMapReady = async () => {
+        try {
+          addHouseLayers();
+          await loadAndRenderHouses(false);
+        } catch (err) {
+          showErrorBanner('データ初期化失敗: ' + err.message);
+        }
+      };
+
+      if (map.loaded()) {
+        await onMapReady();
+      } else {
+        map.on('load', onMapReady);
+      }
+
+      // Ensure resize after layout settles
+      setTimeout(() => { if (map) map.resize(); }, 300);
+    } catch (err) {
+      showErrorBanner('地図初期化失敗: ' + err.message);
+    }
   }
 
   function addHouseLayers() {
@@ -149,7 +192,6 @@
       });
     }
 
-    // Legend colors from CSV: 3=空き家(#004cff), 4=空き家ではない(#c8ff00), 5=判断できない(#fb24ff), 6=未判定(#ff4000)
     const colorMatch = [
       'match',
       ['to-string', ['get', '空家判定']],
@@ -199,7 +241,6 @@
       });
     }
 
-    // Tap on house polygon/point
     ['houses-fill', 'houses-point'].forEach((layerId) => {
       map.on('click', layerId, (e) => {
         if (!e.features || !e.features.length) return;
@@ -256,7 +297,6 @@
       `対象: <b>${total}</b>棟 / 調査済: <b>${done}</b>棟 (空き家: <b>${akiya}</b>棟)`;
   }
 
-  // Build Legend UI
   function renderLegend() {
     const wrap = document.getElementById('legendWrap');
     ['3', '4', '5', '6'].forEach((k) => {
@@ -268,14 +308,12 @@
     });
   }
 
-  // Open Survey Form Drawer
   async function openSurveyDrawer(houseId) {
     const house = await SurveyDB.getHouse(houseId);
     if (!house) return;
     currentHouseId = houseId;
     currentFormProps = { ...house.properties };
 
-    // Auto-fill surveyor, date, time if empty
     const savedSurveyor = await SurveyDB.getMeta('surveyorName');
     if (!currentFormProps['調査員'] && savedSurveyor) {
       currentFormProps['調査員'] = savedSurveyor;
@@ -304,7 +342,6 @@
     currentHouseId = null;
   }
 
-  // Calculate Badness Score & Check Counts automatically
   function recalculateScores() {
     let badnessTotal = 0;
     let dangerCount = 0;
@@ -354,7 +391,6 @@
     }
   }
 
-  // Render Dynamic Form with Parent-Child Visibility
   function renderFormSections() {
     const container = document.getElementById('formSectionsContainer');
     const tabsWrap = document.getElementById('sectionTabs');
@@ -394,7 +430,6 @@
         row.dataset.col = field.col;
 
         if (field.type === 14) {
-          // Checkbox
           const checked = currentFormProps[field.col] === true || currentFormProps[field.col] === '1' || currentFormProps[field.col] === 1;
           row.innerHTML = `
             <label class="check-row">
@@ -409,7 +444,6 @@
             updateConditionalVisibility();
           });
         } else if (field.options && field.options.length > 0) {
-          // Dropdown (type 3 or 5)
           const curVal = currentFormProps[field.col] !== undefined ? String(currentFormProps[field.col]) : '-1';
           const selectedOpt = field.options.find((o) => o.code === curVal);
           const scoreBadge = selectedOpt && typeof selectedOpt.score === 'number'
@@ -445,7 +479,6 @@
             updateConditionalVisibility();
           });
         } else {
-          // Text / Date / Time / ImageID
           let inputType = 'text';
           if (field.type === 11) inputType = 'date';
           if (field.type === 15) inputType = 'time';
@@ -474,7 +507,6 @@
     updateConditionalVisibility();
   }
 
-  // Show/hide child fields based on parent selection
   function updateConditionalVisibility() {
     SCHEMA.fields.forEach((field) => {
       if (!field.condition) return;
@@ -486,14 +518,12 @@
     });
   }
 
-  // Photo Capture & Display
   async function renderPhotoList() {
     if (!currentHouseId) return;
     const photos = await SurveyDB.getPhotosByHouse(currentHouseId);
     const grid = document.getElementById('photoGrid');
     grid.innerHTML = '';
 
-    // Sync 画像ID field with comma-separated filenames
     const fileNames = photos.map((p) => p.fileName);
     currentFormProps['画像ID'] = fileNames.join(',');
     const imgIdInp = document.getElementById('input_画像ID');
@@ -538,7 +568,6 @@
     await renderPhotoList();
   });
 
-  // Save House Survey
   document.getElementById('btnSaveHouse').addEventListener('click', async () => {
     if (!currentHouseId) return;
     if (currentFormProps['調査員']) {
@@ -552,7 +581,6 @@
   document.getElementById('btnCloseDrawer').addEventListener('click', closeSurveyDrawer);
   document.getElementById('btnCancelDrawer').addEventListener('click', closeSurveyDrawer);
 
-  // GPS Current Location
   document.getElementById('btnGps').addEventListener('click', () => {
     const btn = document.getElementById('btnGps');
     if (watchId !== null) {
@@ -587,7 +615,6 @@
     );
   });
 
-  // Data Management Modal (Import GeoJSON / PMTiles, Export ZIP)
   const dataModal = document.getElementById('dataModal');
   document.getElementById('btnOpenDataModal').addEventListener('click', async () => {
     const surveyor = await SurveyDB.getMeta('surveyorName');
@@ -602,7 +629,6 @@
     await SurveyDB.setMeta('surveyorName', e.target.value.trim());
   });
 
-  // Import GeoJSON
   document.getElementById('geojsonFileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -623,7 +649,6 @@
     e.target.value = '';
   });
 
-  // Import Offline PMTiles
   document.getElementById('pmtilesFileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -638,7 +663,6 @@
     dataModal.classList.remove('open');
   });
 
-  // Export ZIP (GeoJSON + CSV + photos/)
   document.getElementById('btnExportZip').addEventListener('click', async () => {
     const btn = document.getElementById('btnExportZip');
     btn.disabled = true;
@@ -649,7 +673,6 @@
       const areaName = (await SurveyDB.getMeta('geojsonName')) || 'koriyama_survey';
       const zip = new JSZip();
 
-      // 1. GeoJSON
       const outGeoJSON = {
         type: 'FeatureCollection',
         name: areaName,
@@ -661,7 +684,6 @@
       };
       zip.file(`${areaName}_result.geojson`, JSON.stringify(outGeoJSON, null, 2));
 
-      // 2. CSV (UTF-8 with BOM for Excel)
       const cols = SCHEMA.fields.map((f) => f.col);
       const csvRows = [cols.join(',')];
       houses.forEach((h) => {
@@ -671,10 +693,8 @@
         });
         csvRows.push(row.join(','));
       });
-      zip.file(`${areaName}_result.csv`, '﻿' + csvRows.join('
-'));
+      zip.file(`${areaName}_result.csv`, '\uFEFF' + csvRows.join('\r\n'));
 
-      // 3. Photos folder (linked by 家屋ID_連番.jpg)
       const photoFolder = zip.folder('photos');
       photos.forEach((p) => {
         photoFolder.file(p.fileName, p.blob);
@@ -694,7 +714,6 @@
     }
   });
 
-  // Reset Sample Data
   document.getElementById('btnResetSample').addEventListener('click', async () => {
     if (!confirm('端末内の調査データと写真をすべて消去し、サンプルデータに戻しますか？')) return;
     await SurveyDB.clearAll();
