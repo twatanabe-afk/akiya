@@ -1,6 +1,6 @@
 {
-  "name": "郡山市 空き家現地調査システム (R8)",
-  "short_name": "空き家調査R8",
+  "name": "郡山市 空き家現地調査アプリ (v1.2.0)",
+  "short_name": "空き家調査",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0f172a",

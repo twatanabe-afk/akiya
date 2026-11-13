@@ -6,9 +6,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#1e293b">
-  <title>郡山市 空き家現地調査システム (R8)</title>
+  <title>郡山市 空き家現地調査 (v1.2.0)</title>
   <link rel="manifest" href="./manifest.json">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
@@ -16,10 +16,11 @@
     <header class="topbar">
       <div class="topbar-title">
         <span>郡山市 空き家調査</span>
+        <span class="ver-badge js-app-ver">v1.2.0</span>
         <span id="netStatus" class="badge-status badge-online">オンライン</span>
       </div>
-      <div class="topbar-actions">
-        <button type="button" class="btn-top primary" id="btnOpenDataModal">入出力・設定</button>
+      <div>
+        <button type="button" class="btn-top" id="btnOpenDataModal">データ入出力</button>
       </div>
     </header>
 
@@ -32,41 +33,63 @@
       </div>
 
       <div class="floating-tools">
-        <button type="button" class="fab" id="btnGps" title="現在地を追尾">📍</button>
+        <button type="button" class="fab" id="btnGps" title="現在地を表示">📍</button>
       </div>
     </main>
 
-    <!-- Survey Input Drawer -->
+    <!-- Survey Drawer -->
     <div id="surveyDrawer" class="drawer">
       <div class="drawer-header">
         <div>
-          <h2 id="drawerTitle">家屋ID</h2>
-          <div class="drawer-sub" id="drawerSub">住所</div>
+          <h2 id="drawerTitle">調査ID</h2>
+          <div class="drawer-sub" id="drawerSub">所在地</div>
         </div>
-        <button type="button" class="btn-top" id="btnCloseDrawer">閉じる ✕</button>
+        <button type="button" class="btn-top dark" id="btnCloseDrawer">閉じる ✕</button>
       </div>
-
-      <div class="score-bar">
-        <span>不良度評点: <span class="score-pill" id="liveBadnessScore">0 点</span></span>
-        <span>危険性該当数: <span class="score-pill" id="liveDangerCount">0 件</span></span>
-      </div>
-
-      <div class="section-tabs" id="sectionTabs"></div>
 
       <div class="drawer-body">
-        <!-- Photo Capture Card -->
-        <div class="photo-box" id="photoBox">
-          <div style="font-weight:700; font-size:14px; margin-bottom:4px;">📷 現地写真撮影（家屋ID自動紐づけ）</div>
-          <div id="photoHint" style="font-size:12px; color:#334155; margin-bottom:8px;"></div>
+        <!-- 1. Editable Input Fields (4 items only) -->
+        <div class="card">
+          <h3 class="card-title">調査結果入力</h3>
+
+          <div class="field-row">
+            <span class="field-label">空家判定（地図の色に反映）</span>
+            <div class="status-grid" id="statusSelector"></div>
+          </div>
+
+          <div class="field-row">
+            <label class="field-label" for="inpDate">調査日付</label>
+            <input type="date" id="inpDate">
+          </div>
+
+          <div class="field-row">
+            <label class="field-label" for="inpTime">調査時間</label>
+            <input type="time" id="inpTime">
+          </div>
+
+          <div class="field-row">
+            <label class="field-label" for="inpSurveyor">調査員</label>
+            <input type="text" id="inpSurveyor" placeholder="例：郡山 調査員A">
+          </div>
+        </div>
+
+        <!-- 2. Photo Capture -->
+        <div class="card">
+          <h3 class="card-title">現地写真（家屋ID自動紐づけ）</h3>
           <label class="photo-btn">
-            <span>カメラを起動して撮影（または選択）</span>
+            <span>📷 カメラで撮影（または写真選択）</span>
             <input type="file" id="cameraInput" accept="image/*" capture="environment" multiple style="display:none;">
           </label>
           <div class="photo-grid" id="photoGrid"></div>
         </div>
 
-        <!-- Dynamic 133 Fields -->
-        <div id="formSectionsContainer"></div>
+        <!-- 3. Read-only Reference Attributes -->
+        <div class="card">
+          <h3 class="card-title">事前登録情報（参照専用）</h3>
+          <table class="ref-table">
+            <tbody id="refTableBody"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="drawer-footer">
@@ -75,12 +98,12 @@
       </div>
     </div>
 
-    <!-- Data Import/Export Modal -->
+    <!-- Data Import / Export Modal -->
     <div id="dataModal" class="modal-backdrop">
       <div class="modal-card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <h3 style="margin:0;">データ入出力・オフライン設定</h3>
-          <button type="button" class="btn-top" id="btnCloseDataModal">✕</button>
+          <h3 style="margin:0;">データ入出力・設定</h3>
+          <button type="button" class="btn-top dark" id="btnCloseDataModal">✕</button>
         </div>
 
         <div class="modal-group">
@@ -89,35 +112,29 @@
         </div>
 
         <div class="modal-group">
-          <div style="font-weight:700; font-size:13px; margin-bottom:4px;">2. 担当エリアの家屋GeoJSONを読み込む</div>
-          <div style="font-size:11px; color:#64748b; margin-bottom:6px;">※事前に分割した担当エリアのGeoJSONを選択してください</div>
+          <div style="font-weight:700; font-size:13px; margin-bottom:4px;">2. 別のエリアGeoJSONに差し替える</div>
+          <div style="font-size:11px; color:#64748b; margin-bottom:6px;">※初期状態では郡山市R8データ（6,034棟）が読み込まれています</div>
           <input type="file" id="geojsonFileInput" accept=".geojson,.json">
         </div>
 
         <div class="modal-group">
-          <div style="font-weight:700; font-size:13px; margin-bottom:4px;">3. オフライン背景地図（PMTiles）を読み込む</div>
-          <div style="font-size:11px; color:#64748b; margin-bottom:6px;">※通信圏外で地理院ベクトル地図を表示する場合に選択します</div>
-          <input type="file" id="pmtilesFileInput" accept=".pmtiles">
-        </div>
-
-        <div class="modal-group">
-          <div style="font-weight:700; font-size:13px; margin-bottom:4px;">4. 調査データの出力（バックアップ・提出）</div>
-          <div style="font-size:11px; color:#64748b; margin-bottom:6px;">属性反映済GeoJSON・CSV・家屋ID紐づけ済写真（photos/）をZIP出力します</div>
+          <div style="font-weight:700; font-size:13px; margin-bottom:4px;">3. 調査結果・写真のZIP一括出力</div>
+          <div style="font-size:11px; color:#64748b; margin-bottom:6px;">GeoJSON・CSV・家屋ID紐づけ済写真（photos/）をまとめて出力します</div>
           <button type="button" class="modal-btn" id="btnExportZip">調査結果と写真をZIPで一括出力</button>
         </div>
 
         <div>
-          <button type="button" class="modal-btn danger" id="btnResetSample">端末データを初期化（サンプルに戻す）</button>
+          <button type="button" class="modal-btn danger" id="btnResetSample">端末データを初期状態（R8.geojson）に戻す</button>
         </div>
+
+        <div class="ver-footer" id="modalAppVersion">アプリバージョン: v1.2.0 (ビルド: 2026-11-13)</div>
       </div>
     </div>
   </div>
 
-  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-  <script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/dexie@4.0.8/dist/dexie.min.js"></script>
   <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script src="./js/schema.js"></script>
   <script src="./js/db.js"></script>
   <script src="./js/app.js"></script>
 </body>

@@ -1,15 +1,14 @@
-const CACHE_NAME = 'koriyama-akiya-pwa-v1';
+const CACHE_NAME = 'koriyama-akiya-v1.2.0';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './css/style.css',
-  './js/schema.js',
   './js/db.js',
   './js/app.js',
-  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
-  'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js',
-  'https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js',
+  './data/default_r8.geojson',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://unpkg.com/dexie@4.0.8/dist/dexie.min.js',
   'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js'
 ];
@@ -17,7 +16,7 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return Promise.allSettled(ASSETS.map(url => cache.add(url)));
+      return Promise.allSettled(ASSETS.map((url) => cache.add(url)));
     })
   );
   self.skipWaiting();
@@ -46,7 +45,6 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // Offline fallback for map tiles: return empty 204 so map renders smoothly
           if (event.request.url.includes('cyberjapandata.gsi.go.jp')) {
             return new Response('', { status: 204 });
           }
